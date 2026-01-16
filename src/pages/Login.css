@@ -1,0 +1,102 @@
+@import url('https://fonts.googleapis.com/css2?family=Kode+Mono:wght@400..700&display=swap');
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+/* FONDO PANTALLA COMPLETA */
+.containerBackground {
+  width: 100vw;
+  height: 100vh; 
+  --color: rgba(114, 114, 114, 0.3);
+
+  background-color: #191a1a;
+  background-image:
+    linear-gradient(0deg, transparent 24%, var(--color) 25%, var(--color) 26%, transparent 27%, transparent 74%, var(--color) 75%, var(--color) 76%, transparent 77%, transparent),
+    linear-gradient(90deg, transparent 24%, var(--color) 25%, var(--color) 26%, transparent 27%, transparent 74%, var(--color) 75%, var(--color) 76%, transparent 77%, transparent);
+  background-size: 55px 55px;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* FORM PRINCIPAL */
+.form {
+  width: 420px;
+  padding: 2.5em;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  background-color: #171717;
+  border-radius: 25px;
+  transition: .4s ease-in-out;
+  font-family: "Kode Mono", monospace;;
+}
+
+
+.form:hover {
+  transform: scale(1.05);
+}
+
+/* TÍTULO */
+#heading {
+  text-align: center;
+  color: white;
+  font-size: 1.8em;
+  margin-bottom: 1em;
+}
+
+/* INPUTS */
+.field {
+  display: flex;
+  padding: 0.9em;
+  border-radius: 25px;
+  background-color: #171717;
+  box-shadow: inset 2px 5px 10px rgb(5, 5, 5);
+}
+
+.input-field {
+  width: 100%;
+  background: none;
+  border: none;
+  outline: none;
+  color: #d3d3d3;
+  font-size: 1.1em;
+
+  font-family: "Kode Mono", monospace;;
+}
+
+/* BOTÓN */
+.btn {
+  margin-top: 1.5em;
+}
+
+.button1 {
+  width: 100%;
+  padding: 0.8em;
+  border-radius: 8px;
+  border: none;
+  background-color: #252525;
+  color: white;
+  font-size: 1.1em;
+  cursor: pointer;
+  transition: .3s;
+  font-family: "Kode Mono", monospace;;
+}
+
+.button1:hover {
+  background-color: black;
+}
+.logo-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.logo-container img {
+  width: 200px;
+  height: 200px;
+}
