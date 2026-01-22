@@ -873,69 +873,77 @@ const exportarPDF  = () => {
         
       )}
 
-      {/* MODAL DE DETALLES (TARJETA DE PRESENTACIÓN) */}
-      {showDetailsModal && clienteSelected && (
-  <div className="modal-overlay">
-    <div className="modal detail-card">
+   {/* MODAL DE DETALLES (TARJETA DE PRESENTACIÓN) */}
+{showDetailsModal && clienteSelected && (
+  <div className="modal-overlay" onClick={() => setShowDetailsModal(false)}>
+    <div className="modal detail-card custom-size" onClick={(e) => e.stopPropagation()}>
+      
       <div className="card-header">
         <div className="user-icon">{clienteSelected.nombre.charAt(0).toUpperCase()}</div>
-        <div>
+        <div className="header-info">
           <h2>{clienteSelected.nombre}</h2>
           <span className={`badge ${clienteSelected.estado.toLowerCase()}`}>
             {clienteSelected.estado.replace("_", " ")}
           </span>
         </div>
+        <button className="close-x" onClick={() => setShowDetailsModal(false)}>&times;</button>
       </div>
 
-      <div className="card-body">
-        {/* ... Info Grid que ya tenías ... */}
+      {/* CONTENEDOR CON SCROLL */}
+      <div className="card-body-scrollable">
         
-        <hr />
-        <h3>Historial de Cobranza</h3>
-        <div className="historial-scroll">
-          {Object.keys(obtenerEstructuraPagos(clienteSelected)).reverse().map(anio => (
-            <div key={anio} className="anio-bloque">
-              <h4>Año {anio}</h4>
-              <div className="tabla-pagos-grid">
-                {obtenerEstructuraPagos(clienteSelected)[anio].map((p, i) => (
-                  <div key={i} className={`celda-pago ${p.status.toLowerCase()}`}>
-                    <span className="mes-name">{p.nombreMes.substring(0, 3)}</span>
-                    <span className="pago-icon">
-                      {p.status === 'PAGADO' ? '✔' : (p.status === 'PENDIENTE' ? '!' : '○')}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+        <div className="info-section">
+          <h3>Datos Generales</h3>
+          <div className="info-grid-details">
+            <div className="item"><strong>Póliza:</strong> {clienteSelected.numPoliza}</div>
+            <div className="item"><strong>TRAD:</strong> {clienteSelected.trad}</div>
+            <div className="item"><strong>RFC:</strong> {clienteSelected.rfc}</div>
+            <div className="item"><strong>Prima:</strong> ${clienteSelected.cantidadPago}</div>
+            <div className="item"><strong>Plan:</strong> {PLANES[clienteSelected.plan]}</div>
+            <div className="item"><strong>Frecuencia:</strong> {clienteSelected.frecuenciaPago}</div>
+            <div className="item"><strong>Ingreso:</strong> {new Date(clienteSelected.fechaIngreso).toLocaleDateString()}</div>
+            <div className="item"><strong>Nacimiento:</strong> {new Date(clienteSelected.fechaNacimiento).toLocaleDateString()}</div>
+          </div>
         </div>
 
-        <div className="next-payment-highlight">
-          <div className="botones-pago-container">
+        <hr />
 
-    <button className="btn-pago masivo" onClick={() => handlePonerAlCorriente(clienteSelected)}>
-      Poner al Corriente
-    </button>
-    
-    <button className="btn-pago eliminar" onClick={() => handleEliminarPago(clienteSelected)}>
-      Remover Pago 
-    </button>
-  </div>
-          <label>Próximo Vencimiento:</label>
-          <h3>{getNextDueDate(clienteSelected.fechaIngreso, clienteSelected.frecuenciaPago, clienteSelected.estado).toLocaleDateString('es-MX')}</h3>
-          
-          {/* BOTÓN PARA REGISTRAR PAGO DEL MES ACTUAL */}
-          <button 
-            className="btn-registrar-pago"
-            onClick={() => handleRegistrarPago(clienteSelected)}
-          >
-            Registrar Pago Mes Actual
-          </button>
+        <div className="info-section">
+          <h3>Historial de Cobranza</h3>
+          <div className="historial-container">
+            {Object.keys(obtenerEstructuraPagos(clienteSelected)).reverse().map(anio => (
+              <div key={anio} className="anio-bloque">
+                <h4>Año {anio}</h4>
+                <div className="tabla-pagos-grid">
+                  {obtenerEstructuraPagos(clienteSelected)[anio].map((p, i) => (
+                    <div key={i} className={`celda-pago ${p.status.toLowerCase()}`}>
+                      <span className="mes-name">{p.nombreMes.substring(0, 3)}</span>
+                      <span className="pago-icon">
+                        {p.status === 'PAGADO' ? '✔' : (p.status === 'PENDIENTE' ? '!' : '○')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="payment-actions-footer">
+          <h4>Acciones de Pago</h4>
+          <div className="botones-pago-container">
+            <button className="btn-pago-masivo" onClick={() => handlePonerAlCorriente(clienteSelected)}>
+              ⚡ Poner al Corriente
+            </button>
+            <button className="btn-pago-eliminar" onClick={() => handleEliminarPago(clienteSelected)}>
+              🗑️ Eliminar último pago
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="modal-actions">
-        <button className="close-btn" onClick={() => setShowDetailsModal(false)}>Cerrar</button>
+      <div className="modal-footer-fixed">
+        <button className="btn-close-modal" onClick={() => setShowDetailsModal(false)}>Cerrar</button>
       </div>
     </div>
   </div>

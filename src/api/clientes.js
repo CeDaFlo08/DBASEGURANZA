@@ -1,7 +1,7 @@
 import axios from "axios";
 import authHeader from "../services/authHeader";
 
-const API_URL = "http://localhost:3000/api/clientes";
+const API_URL = "https://backenddbaseguranza.onrender.com/api/clientes";
 
 export const getClientes = () => {
   return axios.get(API_URL, {
