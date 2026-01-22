@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { getClientes, createCliente, updateCliente, deleteCliente } from "../api/clientes";
+import { 
+  registrarPagoRequest,
+  ponerAlCorrienteRequest, 
+  eliminarUltimoPagoRequest 
+  } from "../api/clientes";
+
 import "./Dashboard.css";
 // ============== COMPONENTE DE BARRA DE BUSQUEDA ==============
 import { Searchbar } from "../components/elements/Searchbar";
@@ -10,29 +16,11 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 // ... resto de imports y código ...
+// Planes EXACTOS O LISTAS DE FRECUENCIAS Y MESES
+import { PLANES, FRECUENCIAS, MESES } from "../components/elements/controls/ListasClient";
+//Controladores
 
-// Planes EXACTOS
-const PLANES = {
-  1: "GMM (Gastos Médicos Mayores)",
-  2: "Primordial",
-  3: "MetaLife",
-  4: "EducaLife",
-  5: "FlexiInversion",
-  6: "TotalLife",
-  7: "PerfectLife",
-  8: "TempoLife"
-};
-
-//Lista de frecuencias
-const FRECUENCIAS = ["ANUAL", "SEMESTRAL", "TRIMESTRAL", "MENSUAL"];
-
-//lista de meses
-const MESES = [
-  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-];
-
-export const Dashboard = () => {
+export const Dashboard = () => { 
   const { user, logout } = useAuth();
   const [clientes, setClientes] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -45,6 +33,9 @@ export const Dashboard = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [clienteToDelete, setClienteToDelete] = useState(null);
   const [deleteName, setDeleteName] = useState("");
+  //modal de mas detalles
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+const [clienteSelected, setClienteSelected] = useState(null);
 
   const initialForm = {
     nombre: "",
@@ -114,30 +105,33 @@ export const Dashboard = () => {
   // =============================
   // Cargar clientes
   // =============================
-  const cargarClientes = async () => {
-    try {
-      const res = await getClientes();
-      let clientesData = res.data;
+const cargarClientes = async () => {
+  try {
+    const res = await getClientes();
+    const clientesData = res.data;
+    const actualizaciones = [];
 
-      // Verificar y actualizar estados automáticamente
-      for (let c of clientesData) {
-        const nextDue = getNextDueDate(c.fechaIngreso, c.frecuenciaPago, c.estado);
-        if (nextDue < today && c.estado === 'AL_CORRIENTE') {
-          // Actualizar a PENDIENTE
-          try {
-            await updateCliente(c._id, { estado: 'PENDIENTE' });
-            c.estado = 'PENDIENTE'; // actualizar localmente
-          } catch (error) {
-            console.error("Error al actualizar estado automático", error);
-          }
-        }
+    const nuevasData = clientesData.map(c => {
+      const nuevoEstado = checkStatusUpdate(c);
+      
+      if (nuevoEstado) {
+        // Agregamos la promesa de actualización a la lista
+        actualizaciones.push(updateCliente(c._id, { estado: nuevoEstado }));
+        return { ...c, estado: nuevoEstado }; // Actualizamos localmente para no esperar al re-render
       }
+      return c;
+    });
 
-      setClientes(clientesData);
-    } catch (error) {
-      console.error("Error al cargar clientes", error);
+    // Ejecutamos todas las actualizaciones en el servidor al mismo tiempo
+    if (actualizaciones.length > 0) {
+      await Promise.all(actualizaciones);
     }
-  };
+
+    setClientes(nuevasData);
+  } catch (error) {
+    console.error("Error al procesar estados:", error);
+  }
+};
 
   useEffect(() => {
     cargarClientes();
@@ -235,6 +229,14 @@ export const Dashboard = () => {
         break;
       default:
         break;
+
+      case 'detalles': 
+        setClienteSelected(cliente);
+        setShowDetailsModal(true);
+      break;
+      case 'cambiar':
+        cambiarEstado(cliente);
+      break;
     }
   };
   const borrarCliente = (cliente) => {
@@ -330,6 +332,203 @@ export const Dashboard = () => {
     return 0;
   });
 
+//checar status
+const checkStatusUpdate = (cliente) => {
+  if (cliente.estado !== 'AL_CORRIENTE') return null;
+
+  const fechaIngreso = new Date(cliente.fechaIngreso);
+  const diaVencimiento = fechaIngreso.getDate();
+  const hoy = new Date();
+  
+  // 1. Calculamos la fecha del "último vencimiento que debió ocurrir"
+  // Usamos tu lógica de getNextDueDate pero ajustada para encontrar el límite actual
+  const proximaFecha = getNextDueDate(cliente.fechaIngreso, cliente.frecuenciaPago, 'AL_CORRIENTE');
+
+  // 2. Si hoy es después de la próxima fecha de vencimiento, debe pasar a PENDIENTE
+  // Comparamos solo las fechas (sin horas para evitar errores de precisión)
+  const hoySinHora = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  const vencimientoSinHora = new Date(proximaFecha.getFullYear(), proximaFecha.getMonth(), proximaFecha.getDate());
+
+  if (hoySinHora > vencimientoSinHora) {
+    return 'PENDIENTE';
+  }
+
+  return null;
+};
+
+//registrar pago nuevo
+const registrarNuevoPago = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { mes, anio } = req.body;
+
+    const cliente = await Cliente.findById(id);
+    if (!cliente) return res.status(404).json({ message: "Cliente no encontrado" });
+
+    // 1. Evitar duplicados (no pagar dos veces el mismo mes/año)
+    const yaExiste = cliente.pagos.find(p => p.mes === mes && p.anio === anio);
+    if (yaExiste) return res.status(400).json({ message: "Este mes ya fue pagado" });
+
+    // 2. Agregar el pago y poner el estado en AL_CORRIENTE automáticamente
+    cliente.pagos.push({ mes, anio, estado: "PAGADO" });
+    cliente.estado = "AL_CORRIENTE";
+
+    await cliente.save();
+    res.json(cliente);
+  } catch (error) {
+    res.status(500).json({ message: "Error al registrar pago", error: error.message });
+  }
+};
+
+//resgistrar pago desde frontend
+const handleRegistrarPago = async (cliente) => {
+  const hoy = new Date();
+  const datosPago = {
+    mes: hoy.getMonth(),
+    anio: hoy.getFullYear()
+  };
+
+  try {
+    await registrarPagoRequest(cliente._id, datosPago);
+    alert(`Pago de ${MESES[datosPago.mes]} ${datosPago.anio} registrado.`);
+    setShowDetailsModal(false);
+    cargarClientes(); // Recarga la lista para ver el cambio de estado
+  } catch (error) {
+    alert(error.response?.data?.message || "Error al registrar pago");
+  }
+};
+//estructura de pagos
+const obtenerEstructuraPagos = (cliente) => {
+  const inicio = new Date(cliente.fechaIngreso);
+  const hoy = new Date();
+  const pagosRealizados = cliente.pagos || [];
+  
+  const saltos = { 'MENSUAL': 1, 'TRIMESTRAL': 3, 'SEMESTRAL': 6, 'ANUAL': 12 };
+  const mesesASaltar = saltos[cliente.frecuenciaPago] || 1;
+
+  let estructura = {};
+  let iterador = new Date(inicio);
+  
+  // Limitar a un año a futuro para no crear tablas infinitas
+  const limiteCorte = new Date(hoy.getFullYear() + 1, 11, 31);
+
+  while (iterador <= limiteCorte && iterador.getFullYear() <= hoy.getFullYear()) {
+    const anio = iterador.getFullYear();
+    const mes = iterador.getMonth();
+    
+    if (!estructura[anio]) estructura[anio] = [];
+
+    const pagado = pagosRealizados.find(p => p.mes === mes && p.anio === anio);
+    
+    let estadoLabel = pagado ? 'PAGADO' : (iterador < new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()) ? 'PENDIENTE' : 'PRÓXIMO');
+
+    estructura[anio].push({
+      mes: mes,
+      nombreMes: MESES[mes],
+      status: estadoLabel
+    });
+
+    iterador.setMonth(iterador.getMonth() + mesesASaltar);
+  }
+  return estructura;
+};
+
+// En controllers/clienteController.js
+
+// 1. Poner al corriente (Marca todos los meses pendientes como pagados)
+const ponerAlCorrienteMasivo = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { mesesFaltantes } = req.body; // Un array de {mes, anio}
+
+    const cliente = await Cliente.findById(id);
+    if (!cliente) return res.status(404).json({ message: "Cliente no encontrado" });
+
+    // Agregamos solo los que no existan ya
+    mesesFaltantes.forEach(pago => {
+      const existe = cliente.pagos.find(p => p.mes === pago.mes && p.anio === pago.anio);
+      if (!existe) {
+        cliente.pagos.push({ ...pago, estado: "PAGADO" });
+      }
+    });
+
+    cliente.estado = "AL_CORRIENTE";
+    await cliente.save();
+    res.json(cliente);
+  } catch (error) {
+    res.status(500).json({ message: "Error al actualizar", error: error.message });
+  }
+};
+
+// 2. Eliminar último pago (Corregir error)
+const eliminarUltimoPago = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const cliente = await Cliente.findById(id);
+    
+    if (cliente.pagos.length === 0) return res.status(400).json({ message: "No hay pagos para eliminar" });
+
+    // Eliminamos el último del array
+    cliente.pagos.pop();
+    
+    await cliente.save();
+    res.json(cliente);
+  } catch (error) {
+    res.status(500).json({ message: "Error al eliminar pago", error: error.message });
+  }
+};
+
+// Poner al corriente: Envía los meses marcados como "!" al servidor
+const handlePonerAlCorriente = async (cliente) => {
+  if (!window.confirm("¿Marcar todos los meses pendientes como pagados?")) return;
+
+  const estructura = obtenerEstructuraPagos(cliente);
+  const faltantes = [];
+
+  // Extraemos solo los meses que el sistema marcó como PENDIENTE (!)
+  Object.keys(estructura).forEach(anio => {
+    estructura[anio].forEach(p => {
+      if (p.status === 'PENDIENTE') {
+        faltantes.push({ mes: p.mes, anio: parseInt(anio) });
+      }
+    });
+  });
+
+  if (faltantes.length === 0) {
+    alert("El cliente ya está al corriente.");
+    return;
+  }
+
+  try {
+    await ponerAlCorrienteRequest(cliente._id, faltantes);
+    alert("Cliente puesto al corriente exitosamente.");
+    setShowDetailsModal(false);
+    cargarClientes(); // Refresca la tabla principal
+  } catch (error) {
+    console.error(error);
+    alert("Error al procesar el pago masivo.");
+  }
+};
+
+// Remover Pago: Elimina el último registro del array de pagos en la BD
+const handleEliminarPago = async (cliente) => {
+  if (cliente.pagos.length === 0) {
+    alert("No hay pagos registrados para este cliente.");
+    return;
+  }
+
+  if (!window.confirm("¿Estás seguro de eliminar el ÚLTIMO pago registrado?")) return;
+
+  try {
+    await eliminarUltimoPagoRequest(cliente._id);
+    alert("Último pago eliminado.");
+    setShowDetailsModal(false);
+    cargarClientes();
+  } catch (error) {
+    console.error(error);
+    alert("Error al eliminar el pago.");
+  }
+};
   
 const exportarPDF  = () => {
   if (clientesFiltrados.length === 0) {
@@ -508,10 +707,10 @@ const exportarPDF  = () => {
           <thead>
             <tr>
               <th>Nombre</th>
+              <th>F. Nacimiento</th>
               <th>Póliza</th>
               <th>TRAD</th>
               <th>RFC</th>
-              <th>F. Nacimiento</th>
               <th>F. Ingreso</th>
               <th>Prima</th>
               <th>Plan</th>
@@ -531,10 +730,10 @@ const exportarPDF  = () => {
               return (
                 <tr key={c._id} className={isNearDue ? 'near-due' : ''}>
                   <td>{c.nombre}</td>
+                  <td>{new Date(c.fechaNacimiento).toLocaleDateString()}</td>
                   <td>{c.numPoliza}</td>
                   <td>{c.trad}</td>
                   <td>{c.rfc}</td>
-                  <td>{new Date(c.fechaNacimiento).toLocaleDateString()}</td>
                   <td>{new Date(c.fechaIngreso).toLocaleDateString()}</td>
                   <td>${c.cantidadPago}</td>
                   <td>{PLANES[c.plan]}</td>
@@ -552,6 +751,7 @@ const exportarPDF  = () => {
                       <option value="editar">Editar</option>
                       <option value="cancelar">Cancelar Cliente</option>
                       <option value="borrar">Borrar Cliente</option>
+                      <option value="detalles">Ver Detalles</option>
                     </select>
                   </td>
                 </tr>
@@ -668,7 +868,78 @@ const exportarPDF  = () => {
             </div>
           </div>
         </div>
+
+
+        
       )}
+
+      {/* MODAL DE DETALLES (TARJETA DE PRESENTACIÓN) */}
+      {showDetailsModal && clienteSelected && (
+  <div className="modal-overlay">
+    <div className="modal detail-card">
+      <div className="card-header">
+        <div className="user-icon">{clienteSelected.nombre.charAt(0).toUpperCase()}</div>
+        <div>
+          <h2>{clienteSelected.nombre}</h2>
+          <span className={`badge ${clienteSelected.estado.toLowerCase()}`}>
+            {clienteSelected.estado.replace("_", " ")}
+          </span>
+        </div>
+      </div>
+
+      <div className="card-body">
+        {/* ... Info Grid que ya tenías ... */}
+        
+        <hr />
+        <h3>Historial de Cobranza</h3>
+        <div className="historial-scroll">
+          {Object.keys(obtenerEstructuraPagos(clienteSelected)).reverse().map(anio => (
+            <div key={anio} className="anio-bloque">
+              <h4>Año {anio}</h4>
+              <div className="tabla-pagos-grid">
+                {obtenerEstructuraPagos(clienteSelected)[anio].map((p, i) => (
+                  <div key={i} className={`celda-pago ${p.status.toLowerCase()}`}>
+                    <span className="mes-name">{p.nombreMes.substring(0, 3)}</span>
+                    <span className="pago-icon">
+                      {p.status === 'PAGADO' ? '✔' : (p.status === 'PENDIENTE' ? '!' : '○')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="next-payment-highlight">
+          <div className="botones-pago-container">
+
+    <button className="btn-pago masivo" onClick={() => handlePonerAlCorriente(clienteSelected)}>
+      Poner al Corriente
+    </button>
+    
+    <button className="btn-pago eliminar" onClick={() => handleEliminarPago(clienteSelected)}>
+      Remover Pago 
+    </button>
+  </div>
+          <label>Próximo Vencimiento:</label>
+          <h3>{getNextDueDate(clienteSelected.fechaIngreso, clienteSelected.frecuenciaPago, clienteSelected.estado).toLocaleDateString('es-MX')}</h3>
+          
+          {/* BOTÓN PARA REGISTRAR PAGO DEL MES ACTUAL */}
+          <button 
+            className="btn-registrar-pago"
+            onClick={() => handleRegistrarPago(clienteSelected)}
+          >
+            Registrar Pago Mes Actual
+          </button>
+        </div>
+      </div>
+
+      <div className="modal-actions">
+        <button className="close-btn" onClick={() => setShowDetailsModal(false)}>Cerrar</button>
+      </div>
+    </div>
+  </div>
+)}
 
 <br />
 
